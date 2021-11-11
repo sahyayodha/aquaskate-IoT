@@ -7,13 +7,18 @@
 #include <LiquidCrystal_I2C.h>
 #include <RTClib.h>
 #include <Servo.h>
-#define ONE_WIRE_BUS 2
-#define sensorPower 12
-#define sensorPin A0
+#include <EEPROM.h>
+#include <GravityTDS.h>
+#define ONE_WIRE_BUS 14
+#define waterlevelPower 12
+#define waterlevelPin A0
 #define echoPin 11
 #define trigPin 13
+#define tdsSensorPin A1
 
 LiquidCrystal_I2C lcd = LiquidCrystal_I2C(0x27, 20, 4);
+
+GravityTDS gravitytds;
 
 long durasi; 
 int jarak;
@@ -21,6 +26,7 @@ int jarak;
 RTC_DS3231 rtc;
 DateTime Date;
 String feedTime[3] = {"07:00","12:00","18:00"};
+char daysOfTheWeek[7][12] = {"SENIN", "SELASA", "RABU", "KAMIS", "JUMAT", "SABTU", "MINGGU"};
 
 Servo myservo;
 int pos = 0;
@@ -38,8 +44,6 @@ byte customChar[] = {
 
 int solenoidPin = 8; //pin Solenoid pompa
 int solenoidPin2 = 6; //pin Solenoid pembuangan 
-int s = 9;  
-int r = 7;
 int LED = 10; //pin LED
 int FAN = 5; //pin FAN  
 volatile byte relayState = LOW;
@@ -49,6 +53,12 @@ int value = 0; //sinmpen value water level
 int red = 2; 
 int green = 3;
 int blue = 4;
+int red2 = 15;
+int blue2 = 16;
+int green2 = 17;
+int servoPin  = 18;
+float temperature = 25,tdsValue;
+
 
 OneWire oneWire(ONE_WIRE_BUS);  
 DallasTemperature sensors(&oneWire);
@@ -59,129 +69,134 @@ void setup() {
   lcd.backlight();
   pinMode(1, INPUT);
   pinMode(5, OUTPUT);
-  pinMode(sensorPower, OUTPUT);
-  digitalWrite(sensorPower, LOW);
+  pinMode(waterlevelPower, OUTPUT);
+  digitalWrite(waterlevelPower, LOW);
   lcd.begin(20,4);
   lcd.createChar(0, customChar);
-  pinMode(s, OUTPUT); 
-  pinMode(r, OUTPUT);
   pinMode(solenoidPin, OUTPUT);
   pinMode(red, OUTPUT);
   pinMode(green, OUTPUT);
   pinMode(blue, OUTPUT);
-  pinMode(echoPin, OUTPUT);
+  pinMode(red2, OUTPUT);
+  pinMode(blue2, OUTPUT);
+  pinMode(green2, OUTPUT);
+  pinMode(echoPin, INPUT);
   pinMode(trigPin, OUTPUT);
+  pinMode(tdsSensorPin, INPUT);
   Serial.begin(9600);
-  Serial.println("ULTRASONIK SENSOR MENYALA");
-
+  myservo.attach(servoPin);
+  gravitytds.setPin(tdsSensorPin);
+  gravitytds.setAref(5.0);
+  gravitytds.setAdcRange(1024);
+  gravitytds.begin();
   sensors.begin();
-
-    myservo.attach(9);
   rtc.begin();
  if (rtc.lostPower()) 
   {
-    rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
+ //   rtc.adjust(DateTime(F(DATE), F(TIME)));
   }
-  rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
+//  rtc.adjust(DateTime(F(DATE), F(TIME)));
   // INISIALISASI RTC (REAL TIME CLOCK)
   Serial.println("SETUP RTC SELESAI");
 }
 
 void loop() {
-
-    if((millis() - lastDebounceTime) > debounceDelay && relayState == HIGH){
-    digitalWrite(r, HIGH);
-    relayState = LOW;
-    Serial.println("OFF");
-}
+  //suhu
     sensors.requestTemperatures();
-    Serial.print("Temperature : ");
-    Serial.println(sensors.getTempCByIndex(0));
-    Serial.write(0);
-    lcd.clear();
-    lcd.setCursor(0,0);
-    lcd.print("Aquaskate");
-    lcd.setCursor(0,1);
-    lcd.print("----------------");
-    lcd.setCursor(0,2);
-    lcd.print("Temperature :");
-    lcd.setCursor(15,2);
-    lcd.print(sensors.getTempCByIndex(0));
-    lcd.write(0);
-    delay(1000);
-
+    Serial.print("SUHU : ");
+    Serial.print(sensors.getTempCByIndex(0));
+    Serial.print(" \xC2\xB0");
+    Serial.println("C");
+//suhu
 if (sensors.getTempCByIndex(0) < 30) {
   digitalWrite(LED, HIGH);
-  Serial.println("SUHU DIBAWAH 30 DERAJAT, LED AKAN SEGERA MENYALA");
+  Serial.println("SUHU DIBAWAH 30 DERAJAT"); //led nyala jika suhu dibawah 30 derajat
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("AQUASKATE");
+  lcd.setCursor(0,1);
+  lcd.print("----------------");
+  lcd.setCursor(0,2);
+  lcd.print("SUHU DIBAWAH 30");
+  lcd.setCursor(0,3);
+  lcd.print("DERAJAT");
+  delay(3000);
  }else {
   digitalWrite(LED, LOW);
  }
  if (sensors.getTempCByIndex(0) > 30){
   digitalWrite(FAN, HIGH);
-  Serial.println("SUHU DIATAS 30 DERAJAT, FAN AKAN SEGERA MENYALA");
+  Serial.println("SUHU DIATAS 30 DERAJAT"); //fan nyala jika suhu diatas 30 derajat
   lcd.clear();
- 
+  lcd.setCursor(0,0);
+  lcd.print("AQUASKATE");
+  lcd.setCursor(0,1);
+  lcd.print("----------------");
+  lcd.setCursor(0,2);
+  lcd.print("SUHU DIATAS 30");
+  lcd.setCursor(0,3);
+  lcd.print("DERAJAT");
+  delay(3000);
  }else {
   digitalWrite(FAN, LOW);
  }
- 
-  value = analogRead(sensorPin);
-  Serial.print("Water Level : ");
+ //suhu
+ //~~~~~~~~~~~~
+ //water level
+  value = analogRead(waterlevelPin);
+  
+  Serial.print("WATER LEVEL  : ");
   Serial.println(value);
-  lcd.clear();
-  lcd.setCursor(0,0);
-  lcd.print("Aquaskate");
-  lcd.setCursor(0,1);
-  lcd.print("----------------");
-  lcd.setCursor(0,2);
-  lcd.print("Water Level :");
-  lcd.setCursor(15,2);
-  lcd.print(value);
 
-  int value = analogRead(A0);
-
- if (value < 100) {
-  Serial.println("AIR LUMAYAN KERING, SOLENOID POMPA AKAN SEGERA MENYALA");
-  lcd.clear();
-  lcd.setCursor(0,0);
-  lcd.print("Aquaskate");
-  lcd.setCursor(0,1);
-  lcd.print("----------------");
-  lcd.setCursor(0,2);
-  lcd.print("AIR LUMAYAN KERING, SOLENOID POMPA AKAN SEGERA MENYALA");
-  digitalWrite(solenoidPin, HIGH);
-  digitalWrite(red, HIGH);
-  digitalWrite(green, LOW);
-  digitalWrite(blue, LOW);
- }
- if ((value > 100) && (value <=300)) {
- Serial.println("AIR BIASA SAJA");
+  int value = analogRead(waterlevelPin);
+  //water level
+  //~~~~~~~~~~~~
+  //solenoid
+if (value < 100) {
+ Serial.println("AIR LUMAYAN KERING");
+ digitalWrite(red, LOW);
+ digitalWrite(green, LOW);
+ digitalWrite(blue, HIGH);
  lcd.clear();
  lcd.setCursor(0,0);
- lcd.print("Aquaskate"); 
+ lcd.print("AQUASKATE");
+ lcd.setCursor(0,1);
+ lcd.print("----------------");
+ lcd.setCursor(0,2);
+ lcd.print("AIR LUMAYAN KERING");
+ delay(3000);
+ }
+if ((value > 100) && (value <=300)) {
+ Serial.println("AIR BIASA SAJA");
+ digitalWrite(red, LOW);
+ digitalWrite(green, LOW);
+ digitalWrite(blue, HIGH);
+ lcd.clear();
+ lcd.setCursor(0,0);
+ lcd.print("AQUASKATE"); 
  lcd.setCursor(0,1);
  lcd.print("----------------");
  lcd.setCursor(0,2);
  lcd.print("AIR BIASA SAJA ");
+ delay(3000);
+ }
+if (value > 300) {
+ Serial.println("AIR KELEBIHAN");
  digitalWrite(red, LOW);
  digitalWrite(green, LOW);
  digitalWrite(blue, HIGH);
- }
- if (value > 300) {
- Serial.println("AIR KELEBIHAN, SOLENOID PEMBUANGAN AKAN SEGERA MENYALA");
  lcd.clear();
  lcd.setCursor(0,0);
- lcd.print("Aquaskate");
+ lcd.print("AQUASKATE");
  lcd.setCursor(0,1);
  lcd.print("----------------");
  lcd.setCursor(0,2);
- lcd.print("AIR KELEBIHAN, SOLENOID PEMBUANGAN AKAN SEGERA MENYALA");
- digitalWrite(solenoidPin2, HIGH);
- digitalWrite(red, LOW);
- digitalWrite(green, HIGH);
- digitalWrite(blue, LOW);
+ lcd.print("AIR KELEBIHAN");
+ delay(3000);
  }
-  
+ //solenoid
+ //~~~~~~~~~~~~~~~~~~
+ //ultrasonik sensor 
   digitalWrite(trigPin, LOW);
   delay(10);
   digitalWrite(trigPin, HIGH);
@@ -194,87 +209,171 @@ if (sensors.getTempCByIndex(0) < 30) {
   Serial.print("JARAK : ");
   Serial.print(jarak);
   Serial.println(" cm");
+  
+if(jarak > 5) {                 //belum tentu 5 cm ntar diitung aj
+  Serial.println("PELET DALAM GELAS SUDAH HABIS");
+  digitalWrite(red2, HIGH);
+  delay(3000);
   lcd.clear();
   lcd.setCursor(0,0);
-  lcd.print("Aquaskate");
+  lcd.print("AQUASKATE");
   lcd.setCursor(0,1);
   lcd.print("----------------");
   lcd.setCursor(0,2);
-  lcd.print("Jarak :");
+  lcd.print("PELET DALAM GELAS");
+  lcd.setCursor(0,3);
+  lcd.print("SUDAH HABIS");
+  delay(3000);
+  }
+  //ultrasonik sensor 
+  //~~~~~~~~~~~~~~~~~~
+  //rtc
+  Date = rtc.now(); 
+  String rtcTime = String(Date.hour()) + ":" + String(Date.minute());
+  String rtcTanggal = String(Date.day()) + "/" + String(Date.month()) + "/" + String(Date.year());
+  
+  Serial.print("HARI : ");
+  Serial.println(daysOfTheWeek[Date.dayOfTheWeek()]);
+  Serial.print("TANGGAL : ");
+  Serial.println(rtcTanggal);
+  Serial.print("JAM : ");
+  Serial.println(rtcTime);
+  //rtc
+  //~~~~~~~~~~~~~~~~~
+  //servo fishfeeder
+  
+if(rtcTime == feedTime[0]){                                     
+    myservo.write(180); 
+    delay(500);
+    myservo.write(133);
+    delay(3000);
+    Serial.println("WAKTU MAKAN IKAN JAM 07.00");
+    lcd.clear();
+    lcd.setCursor(0,0);
+    lcd.print("AQUASKATE");
+    lcd.setCursor(0,1);
+    lcd.print("----------------");
+    lcd.setCursor(0,2);
+    lcd.print("WAKTU MAKAN IKAN JAM 07.00");
+}else if(rtcTime == feedTime[1]){                                           
+    myservo.write(180); 
+    delay(500);
+    myservo.write(133);
+    delay(3000);
+    Serial.println("WAKTU MAKAN IKAN JAM 12.00");
+    lcd.clear();
+    lcd.setCursor(0,0);
+    lcd.print("AQUASKATE");
+    lcd.setCursor(0,1);
+    lcd.print("----------------");
+    lcd.setCursor(0,2);
+    lcd.print("WAKTU MAKAN IKAN JAM 12.00");                                     
+}else if(rtcTime == feedTime[2]){                                         
+    myservo.write(180); 
+    delay(500);
+    myservo.write(133);
+    delay(3000); 
+    Serial.println("WAKTU MAKAN IKAN JAM 18.00");
+    lcd.clear();
+    lcd.setCursor(0,0);
+    lcd.print("AQUASKATE");
+    lcd.setCursor(0,1);
+    lcd.print("----------------");
+    lcd.setCursor(0,2);
+    lcd.print("WAKTU MAKAN IKAN JAM 18.00");                                      
+}
+  //servo fishfeeder
+  //TDS
+  gravitytds.setTemperature(temperature);
+  gravitytds.update();
+  tdsValue = gravitytds.getTdsValue();
+  Serial.print(tdsValue,0);
+  Serial.println("ppm");
+  //TDS
+
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("AQUASKATE");
+  lcd.setCursor(0,1);
+  lcd.print("----------------");
+  lcd.setCursor(0,2);
+  lcd.print("SUHU :");
+  lcd.setCursor(7,2);
+  lcd.print(sensors.getTempCByIndex(0));
+  lcd.setCursor(15,2);
+  lcd.write(0);
+  lcd.print("C");
+  lcd.setCursor(7,3);
+  lcd.print(sensors.getTempFByIndex(0));
+  lcd.setCursor(15,3);
+  lcd.write(0);
+  lcd.print("F");
+  delay(3000);
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("AQUASKATE");
+  lcd.setCursor(0,1);
+  lcd.print("----------------");
+  lcd.setCursor(0,2);
+  lcd.print("WATER LEVEL :");
+  lcd.setCursor(15,2);
+  lcd.print(value);
+  delay(3000);
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("AQUASKATE");
+  lcd.setCursor(0,1);
+  lcd.print("----------------");
+  lcd.setCursor(0,2);
+  lcd.print("JARAK :");
   lcd.setCursor(8,2);
   lcd.print(jarak);
   lcd.setCursor(10,2);
-  lcd.println("cm");
-  return;
-
-  Date = rtc.now(); 
-  String rtcTime = String(Date.hour()) + ":" + String(Date.minute());
-  
-  int hour = Date.hour();
-  int minute = Date.minute();
-  Serial.println("JAM : ");
-  Serial.println(rtcTime);
+  lcd.print("CM");
+  delay(3000);
   lcd.clear();
   lcd.setCursor(0,0);
-  lcd.print("Aquaskate");
+  lcd.print("AQUASKATE");
+  lcd.setCursor(0,1);
+  lcd.print("----------------");
+  lcd.setCursor(0,2);
+  lcd.print("TANGGAL : ");
+  lcd.setCursor(10,2);
+  lcd.print(rtcTanggal);
+  delay(3000);
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("AQUASKATE");
+  lcd.setCursor(0,1);
+  lcd.print("----------------");
+  lcd.setCursor(0,2);
+  lcd.print("HARI : "); 
+  lcd.setCursor(7,2);
+  lcd.print(daysOfTheWeek[Date.dayOfTheWeek()]);
+  delay(3000);
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("AQUASKATE");
   lcd.setCursor(0,1);
   lcd.print("----------------");
   lcd.setCursor(0,2);
   lcd.print("JAM : ");
-  lcd.setCursor(7,2);
+  lcd.setCursor(6,2);
   lcd.print(rtcTime);
-  return;
-
- if(rtcTime == feedTime[0]){
-    for(pos = 0; pos < 360; pos += 1){                                            
-    myservo.write(pos); 
-    } 
-    Serial.println("WAKTU MAKAN IKAN JAM 07.00, FISHFEEDER AKAN SEGERA MENYALA");
-    lcd.clear();
-    lcd.setCursor(0,0);
-    lcd.print("Aquaskate");
-    lcd.setCursor(0,1);
-    lcd.print("----------------");
-    lcd.setCursor(0,2);
-    lcd.print("WAKTU MAKAN IKAN JAM 07.00, FISHFEEDER AKAN SEGERA MENYALA");
-    delay(2000);
-      for(pos = 360; pos>=1; pos-=1) {                                        
-    myservo.write(pos);  
-      }
-}else if(rtcTime == feedTime[1]){
-    for(pos = 0; pos < 360; pos += 1){                                            
-    myservo.write(pos);   
-    }
-    Serial.println("WAKTU MAKAN IKAN JAM 12.00, FISHFEEDER AKAN SEGERA MENYALA");
-    lcd.clear();
-    lcd.setCursor(0,0);
-    lcd.print("Aquaskate");
-    lcd.setCursor(0,1);
-    lcd.print("----------------");
-    lcd.setCursor(0,2);
-    lcd.print("WAKTU MAKAN IKAN JAM 12.00, FISHFEEDER AKAN SEGERA MENYALA");
-    delay(2000);
-      for(pos = 360; pos>=1; pos-=1) {                                        
-    myservo.write(pos);  
-      }
-}else if(rtcTime == feedTime[2]){
-    for(pos = 0; pos < 360; pos += 1){                                            
-    myservo.write(pos);  
-    }
-    Serial.println("WAKTU MAKAN IKAN JAM 18.00, FISHFEEDER AKAN SEGERA MENYALA");
-    lcd.clear();
-    lcd.setCursor(0,0);
-    lcd.print("Aquaskate");
-    lcd.setCursor(0,1);
-    lcd.print("----------------");
-    lcd.setCursor(0,2);
-    lcd.print("WAKTU MAKAN IKAN JAM 18.00, FISHFEEDER AKAN SEGERA MENYALA");
-    delay(2000);
-      for(pos = 360; pos>=1; pos-=1) {                                        
-    myservo.write(pos);  
-      }
-}else{
-    //servony lagi tidur
-
-}
+  delay(3000);
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("AQUASKATE");
+  lcd.setCursor(0,1);
+  lcd.print("----------------");
+  lcd.setCursor(0,2);
+  lcd.print(tdsValue,0);
+  lcd.setCursor(5,2);
+  lcd.print("PPM");
+  delay(3000);
+  lcd.clear();
+  lcd.setCursor(0,1);
+  lcd.print("YODHA GANTENG");
+  lcd.setCursor(0,2);
+  lcd.print("NO DEBAT");
 }
