@@ -1,5 +1,5 @@
 //this is using cpp language. run this on the official arduino app and ur good to go
-//if u want to use it for personal use, contact me on telegram @yodhakun
+//if u want to use it for personal use, contact me on telegram @yodhakun or discord Neoza#3526
 
 #include <OneWire.h> 
 #include <Wire.h>
